@@ -1,0 +1,1408 @@
+service: comuniela-api
+
+frameworkVersion: ">=1.1.0 <2.0.0"
+
+provider:
+  name: aws
+  runtime: nodejs10.x
+  stage: dev
+  endpointType: REGIONAL
+  region: eu-west-1
+  timeout: 30
+  vpc:
+    securityGroupIds:
+      - sg-0ac8b019b37466c37
+    subnetIds:
+      - subnet-725a3e05
+      - subnet-67a5d902
+      - subnet-866bd5df
+  iamRoleStatements:
+    -  Effect: "Allow"
+       Action:
+         - "es:*"
+         - "s3:*"
+         - "lambda:*"
+         - "dynamodb:*"
+         - "rds:*"
+         - "sns:*"
+         - "xray:*"
+         - "cloudwatch:*"
+       Resource: "*"
+  environment:
+    APIPHPENDPOINT: ${env:APIPHPENDPOINT}
+    CAPTCHA_SECRETKEY: ${env:CAPTCHA_SECRETKEY}
+    CAPTCHA_SECRETKEYMOBILE: ${env:CAPTCHA_SECRETKEYMOBILE}
+    DB_HOST: ${env:DB_HOST}
+    DB_NAME: ${env:DB_NAME}
+    DB_PASS: ${env:DB_PASS}
+    DB_USER: ${env:DB_USER}
+    DYNAMODB_PREFIX: ${env:DYNAMODB_PREFIX}
+    ES_HOST: ${env:ES_HOST}
+    LAMBDAVERSION: ${env:LAMBDAVERSION}
+    MAILING_RECIPIENTS_CONTENT_MANAGEMENT: ${env:MAILING_RECIPIENTS_CONTENT_MANAGEMENT}
+    MAILING_RECIPIENTS_INFO: ${env:MAILING_RECIPIENTS_INFO}
+    MAILGUN_APIKEY: ${env:MAILGUN_APIKEY}
+    MAILGUN_DOMAIN: ${env:MAILGUN_DOMAIN}
+    PAYPAL_CLIENTID: ${env:PAYPAL_CLIENT_ID}
+    PAYPAL_CLIENTSECRET: ${env:PAYPAL_CLIENT_SECRET}
+    PAYPAL_MODE: ${env:PAYPAL_MODE}
+    REFRESHTOKEN_EXPIRATION: ${env:REFRESHTOKEN_EXPIRATION}
+    S3_BUCKET_MEDIA: ${env:S3_BUCKET_MEDIA}
+    S3_BUCKET_PUBLIC: ${env:S3_BUCKET_PUBLIC}
+    SESSIONTOKEN_EXPIRATION: ${env:SESSIONTOKEN_EXPIRATION}
+    SIGNEDURL_EXPIRATION: ${env:SIGNEDURL_EXPIRATION}
+    STRIPE_API_KEY: ${env:STRIPE_API_KEY}
+    SHOP_URL: ${env:SHOP_URL}
+    TOKEN_S2S: ${env:TOKEN_S2S}
+    TOPIC_MAILING: ${env:TOPIC_MAILING}
+    TOPIC_NOTIFICATION: ${env:TOPIC_NOTIFICATION}
+    TOPIC_UPLOAD_PROCESSOR: ${env:TOPIC_UPLOAD_PROCESSOR}
+
+  # VPC for internet access
+    # vpc:
+    #   securityGroupIds:
+    #     - sg-0c1d9cbe253973869
+    #   subnetIds:
+    #     - subnet-0934a17080a9f5069
+  # No VPC
+    # vpc:
+    #   securityGroupIds: []
+    #   subnetIds: []
+
+# you can add statements to the Lambda function's IAM Role here
+#  iamRoleStatements:
+#    - Effect: "Allow"
+#      Action:
+#        - "s3:ListBucket"
+#      Resource: { "Fn::Join" : ["", ["arn:aws:s3:::", { "Ref" : "ServerlessDeploymentBucket" } ] ]  }
+#    - Effect: "Allow"
+#      Action:
+#        - "s3:PutObject"
+#      Resource:
+#        Fn::Join:
+#          - ""
+#          - - "arn:aws:s3:::"
+#            - "Ref" : "ServerlessDeploymentBucket"
+#            - "/*"
+
+plugins:
+  - serverless-dotenv-plugin
+  - serverless-plugin-include-dependencies
+  - serverless-plugin-split-stacks
+  - serverless-offline
+  - serverless-prune-plugin
+custom:
+  dotenv:
+    include: []
+  splitStacks:
+    perFunction: true
+  serverless-offline:
+    port: 8080
+  prune:
+    automatic: true
+    number: 5
+
+
+# you can add packaging information here
+package:
+  individually: true
+  excludeDevDependencies: false
+  exclude:
+    - ./**
+  include:
+    - common/**
+
+functions:
+  authDefault:
+    handler: authorizers/auth-default/index.handler
+    vpc:
+      securityGroupIds: []
+      subnetIds: []
+    environment:
+      JWT_SECRET: ${env:JWT_SECRET}
+  authIdentifier:
+    handler: authorizers/auth-identifier/index.handler
+    vpc:
+      securityGroupIds: []
+      subnetIds: []
+    environment:
+      JWT_SECRET: ${env:JWT_SECRET}
+  authAdmin:
+    handler: authorizers/auth-admin/index.handler
+    vpc:
+      securityGroupIds: []
+      subnetIds: []
+    environment:
+      JWT_SECRET: ${env:JWT_SECRET}
+  authS2S:
+    handler: authorizers/auth-s2s/index.handler
+    vpc:
+      securityGroupIds: []
+      subnetIds: []
+    environment:
+      JWT_SECRET: ${env:JWT_SECRET}
+
+  thirdParty:
+    handler: functions/third-party/index.handler
+    memorySize: 128
+    description: Third party services.
+    package:
+      include:
+        - functions/third-party/**
+    vpc:
+      securityGroupIds:
+        - sg-0c1d9cbe253973869
+      subnetIds:
+        - subnet-0934a17080a9f5069
+    events:
+      - http: 
+          path: mailing
+          method: post
+          authorizer: authAdmin
+          cors: true
+      - http: 
+          path: paypal/connect
+          method: post
+          authorizer: authDefault
+          cors: true
+      - http: 
+          path: github/webhook
+          method: post
+          cors: true
+
+  ads:
+    handler: functions/ads/index.handler
+    memorySize: 128
+    description: Ads service.
+    package:
+      include:
+        - functions/ads/**
+    vpc:
+      securityGroupIds:
+        - sg-0c1d9cbe253973869
+      subnetIds:
+        - subnet-0934a17080a9f5069
+    events:
+      - http: 
+          path: admanager/bid
+          method: get
+          authorizer: authS2S
+          cors: true
+      - http: 
+          path: admanager/campaign/{campaignId}/adset/{adSetId}/ad/{adId}/click
+          method: get
+          cors: true
+          request:
+            parameters:
+              paths:
+                campaignId: true
+                adSetId: true
+                adId: true
+      - http: 
+          path: admanager/campaign/{campaignId}/adset/{adSetId}/ad/{adId}/impression
+          method: get
+          authorizer: authS2S
+          cors: true
+          request:
+            parameters:
+              paths:
+                campaignId: true
+                adSetId: true
+                adId: true
+      - http: 
+          path: admanager/user/{userId}/set
+          method: post
+          authorizer: authS2S
+          cors: true
+          request:
+            parameters:
+              paths:
+                userId: true
+      - http: 
+          path: ads/{lineItemId}/{creativeId}
+          method: get
+          cors: true
+          request:
+            parameters:
+              paths:
+                lineItemId: true
+                creativeId: true
+
+  alert:
+    handler: functions/alert/index.handler
+    memorySize: 128
+    description: Alert service.
+    package:
+      include:
+        - functions/alert/**
+    events:
+      - http: 
+          path: alert
+          method: get
+          authorizer: authDefault
+          cors: true
+
+  browser:
+    handler: functions/browser/index.handler
+    memorySize: 128
+    description: Browser service.
+    package:
+      include:
+        - functions/browser/**
+    events:
+      - http: 
+          path: browser
+          method: get
+          cors: true
+      - http: 
+          path: browser
+          method: post
+          cors: true
+
+  center:
+    handler: functions/center/index.handler
+    memorySize: 128
+    description: Center service.
+    package:
+      include:
+        - functions/center/**
+    vpc:
+      securityGroupIds:
+        - sg-0c1d9cbe253973869
+      subnetIds:
+        - subnet-0934a17080a9f5069
+    events:
+      - http: 
+          path: center
+          method: get
+          cors: true
+      - http: 
+          path: center/{centerId}
+          method: get
+          cors: true
+          request:
+            parameters:
+              paths:
+                centerId: true
+      - http: 
+          path: center/{centerId}/rewards
+          method: get
+          cors: true
+          request:
+            parameters:
+              paths:
+                centerId: true
+  
+  city:
+    handler: functions/city/index.handler
+    memorySize: 128
+    description: City service.
+    package:
+      include:
+        - functions/city/**
+    events:
+      - http: 
+          path: city
+          method: get
+          cors: true
+      - http: 
+          path: city/{cityId}
+          method: get
+          cors: true
+          request:
+            parameters:
+              paths:
+                cityId: true
+  
+  country:
+    handler: functions/country/index.handler
+    memorySize: 128
+    description: Country service.
+    package:
+      include:
+        - functions/country/**
+    vpc:
+      securityGroupIds:
+        - sg-0c1d9cbe253973869
+      subnetIds:
+        - subnet-0934a17080a9f5069
+    events:
+      - http: 
+          path: country
+          method: get
+          cors: true
+      - http: 
+          path: country/{countryId}
+          method: get
+          cors: true
+          request:
+            parameters:
+              paths:
+                countryId: true
+      - http: 
+          path: country/{countryId}/study
+          method: get
+          cors: true
+          request:
+            parameters:
+              paths:
+                countryId: true
+
+  file:
+    handler: functions/file/index.handler
+    memorySize: 128
+    description: File service.
+    package:
+      include:
+        - functions/file/**
+    vpc:
+      securityGroupIds:
+        - sg-0c1d9cbe253973869
+      subnetIds:
+        - subnet-0934a17080a9f5069
+    events:
+      - http: 
+          path: file
+          method: get
+          authorizer: authIdentifier
+          cors: true
+      - http: 
+          path: file/{fileId}
+          method: get
+          authorizer: authIdentifier
+          cors: true
+          request:
+            parameters:
+              paths:
+                fileId: true
+      - http: 
+          path: file/{fileId}
+          method: delete
+          authorizer: authDefault
+          cors: true
+          request:
+            parameters:
+              paths:
+                fileId: true
+      - http: 
+          path: file/{fileId}/download
+          method: post
+          authorizer: authDefault
+          cors: true
+          request:
+            parameters:
+              paths:
+                fileId: true
+      - http: 
+          path: file/{fileId}/like
+          method: get
+          authorizer: authIdentifier
+          cors: true
+          request:
+            parameters:
+              paths:
+                fileId: true
+      - http: 
+          path: file/{fileId}/like
+          method: put
+          authorizer: authDefault
+          cors: true
+          request:
+            parameters:
+              paths:
+                fileId: true
+      - http: 
+          path: file/{fileId}/preview
+          method: get
+          authorizer: authIdentifier
+          cors: true
+          request:
+            parameters:
+              paths:
+                fileId: true
+      - http: 
+          path: file/{fileId}/print
+          method: post
+          authorizer: authIdentifier
+          cors: true
+          request:
+            parameters:
+              paths:
+                fileId: true
+      - http: 
+          path: file/{fileId}/recover
+          method: post
+          authorizer: authDefault
+          cors: true
+          request:
+            parameters:
+              paths:
+                fileId: true
+      - http: 
+          path: file/{fileId}/share
+          method: post
+          authorizer: authDefault
+          cors: true
+          request:
+            parameters:
+              paths:
+                fileId: true
+      - http: 
+          path: file/{fileId}/thumbnail
+          method: get
+          cors: true
+          request:
+            parameters:
+              paths:
+                fileId: true
+      - http: 
+          path: file/{fileId}/view
+          method: post
+          authorizer: authDefault
+          cors: true
+          request:
+            parameters:
+              paths:
+                fileId: true
+
+  folder:
+    handler: functions/folder/index.handler
+    memorySize: 128
+    description: Folder service.
+    package:
+      include:
+        - functions/folder/**
+    vpc:
+      securityGroupIds:
+        - sg-0c1d9cbe253973869
+      subnetIds:
+        - subnet-0934a17080a9f5069
+    events:
+      - http: 
+          path: folder
+          method: get
+          authorizer: authIdentifier
+          cors: true
+      - http: 
+          path: folder
+          method: post
+          authorizer: authDefault
+          cors: true
+      - http: 
+          path: folder/{folderId}
+          method: get
+          authorizer: authIdentifier
+          cors: true
+          request:
+            parameters:
+              paths:
+                folderId: true
+  
+  follow:
+    handler: functions/follow/index.handler
+    memorySize: 128
+    description: Follow service.
+    package:
+      include:
+        - functions/follow/**
+    events:
+      - http: 
+          path: follow
+          method: get
+          cors: true
+      - http: 
+          path: follow/file
+          method: get
+          authorizer: authIdentifier
+          cors: true
+      - http: 
+          path: follow/folder
+          method: get
+          authorizer: authIdentifier
+          cors: true
+      - http: 
+          path: follow/folder/file
+          method: get
+          authorizer: authIdentifier
+          cors: true
+      - http: 
+          path: follow/user
+          method: get
+          authorizer: authIdentifier
+          cors: true
+      - http: 
+          path: follow/user/check
+          method: get
+          authorizer: authIdentifier
+          cors: true
+      - http: 
+          path: follow/{type}/{followedId}
+          method: post
+          authorizer: authDefault
+          cors: true
+          request:
+            parameters:
+              paths:
+                type: true
+                followedId: true
+  
+  giveaway:
+    handler: functions/giveaway/index.handler
+    memorySize: 128
+    description: Giveaway service.
+    package:
+      include:
+        - functions/giveaway/**
+    events:
+      - http: 
+          path: giveaway
+          method: get
+          authorizer: authIdentifier
+          cors: true
+      - http: 
+          path: giveaway/ticket
+          method: get
+          authorizer: authDefault
+          cors: true
+      - http: 
+          path: giveaway/ticket
+          method: post
+          authorizer: authDefault
+          cors: true
+      - http: 
+          path: giveaway/{giveawayId}
+          method: get
+          authorizer: authIdentifier
+          cors: true
+          request:
+            parameters:
+              paths:
+                giveawayId: true
+      - http: 
+          path: giveaway/{giveawayId}/ticket
+          method: get
+          cors: true
+          request:
+            parameters:
+              paths:
+                giveawayId: true
+      - http: 
+          path: giveaway/{giveawayId}/ticket/redeem
+          method: post
+          authorizer: authDefault
+          cors: true
+          request:
+            parameters:
+              paths:
+                giveawayId: true
+      - http: 
+          path: giveaway/{giveawayId}/ticket/{ticketId}/redeem
+          method: post
+          authorizer: authDefault
+          cors: true
+          request:
+            parameters:
+              paths:
+                giveawayId: true
+                ticketId: true
+
+  language:
+    handler: functions/language/index.handler
+    memorySize: 128
+    description: Language service.
+    package:
+      include:
+        - functions/language/**
+    vpc:
+      securityGroupIds:
+        - sg-0c1d9cbe253973869
+      subnetIds:
+        - subnet-0934a17080a9f5069
+    events:
+      - http: 
+          path: language
+          method: get
+          cors: true
+  
+  list:
+    handler: functions/list/index.handler
+    memorySize: 128
+    description: List service.
+    package:
+      include:
+        - functions/list/**
+    events:
+      - http: 
+          path: list
+          method: get
+          cors: true
+      - http: 
+          path: list
+          method: post
+          authorizer: authDefault
+          cors: true
+      - http: 
+          path: list/file/{fileId}
+          method: get
+          authorizer: authDefault
+          cors: true
+          request:
+            parameters:
+              paths:
+                fileId: true
+      - http: 
+          path: list/file/{fileId}
+          method: delete
+          authorizer: authDefault
+          cors: true
+          request:
+            parameters:
+              paths:
+                fileId: true
+      - http: 
+          path: list/{listId}
+          method: get
+          authorizer: authIdentifier
+          cors: true
+          request:
+            parameters:
+              paths:
+                listId: true
+      - http: 
+          path: list/{listId}
+          method: put
+          authorizer: authDefault
+          cors: true
+          request:
+            parameters:
+              paths:
+                listId: true
+      - http: 
+          path: list/{listId}
+          method: delete
+          authorizer: authDefault
+          cors: true
+          request:
+            parameters:
+              paths:
+                listId: true
+      - http: 
+          path: list/{listId}/file
+          method: get
+          authorizer: authIdentifier
+          cors: true
+          request:
+            parameters:
+              paths:
+                listId: true
+      - http: 
+          path: list/{listId}/file
+          method: post
+          authorizer: authDefault
+          cors: true
+          request:
+            parameters:
+              paths:
+                listId: true
+      - http: 
+          path: list/{listId}/file
+          method: delete
+          authorizer: authDefault
+          cors: true
+          request:
+            parameters:
+              paths:
+                listId: true
+      - http: 
+          path: list/{listId}/file/{fileId}
+          method: delete
+          authorizer: authDefault
+          cors: true
+          request:
+            parameters:
+              paths:
+                listId: true
+                fileId: true
+
+  login:
+    handler: functions/login/index.handler
+    memorySize: 128
+    description: Login service.
+    package:
+      include:
+        - functions/login/**
+    vpc:
+      securityGroupIds:
+        - sg-0c1d9cbe253973869
+      subnetIds:
+        - subnet-0934a17080a9f5069
+    environment:
+      JWT_SECRET: ${env:JWT_SECRET}
+      JWT_SECRET_REFRESH: ${env:JWT_SECRET_REFRESH}
+    events:
+      - http: 
+          path: login
+          method: post
+          cors: true
+      - http: 
+          path: login/refresh
+          method: post
+          cors: true
+      - http: 
+          path: auth/facebook
+          method: post
+          cors: true
+      - http: 
+          path: signup
+          method: post
+          cors: true
+  
+  notification:
+    handler: functions/notification/index.handler
+    memorySize: 128
+    description: Notification service.
+    package:
+      include:
+        - functions/notification/**
+    vpc:
+      securityGroupIds: []
+      subnetIds: []
+    events:
+      - http: 
+          path: notification
+          method: get
+          authorizer: authDefault
+          cors: true
+      - http: 
+          path: notification/device
+          method: get
+          authorizer: authDefault
+          cors: true
+      - http: 
+          path: notification/device
+          method: post
+          authorizer: authDefault
+          cors: true
+      - http: 
+          path: notification/device/{deviceToken}
+          method: get
+          authorizer: authDefault
+          cors: true
+          request:
+            parameters:
+              paths:
+                deviceToken: true
+      - http: 
+          path: notification/device/{deviceToken}
+          method: delete
+          authorizer: authDefault
+          cors: true
+          request:
+            parameters:
+              paths:
+                deviceToken: true
+      - http: 
+          path: notification/event
+          method: get
+          authorizer: authDefault
+          cors: true
+      - http: 
+          path: notification/event
+          method: post
+          authorizer: authDefault
+          cors: true
+      - http: 
+          path: notification/event/{subscriptionId}
+          method: delete
+          authorizer: authDefault
+          cors: true
+          request:
+            parameters:
+              paths:
+                subscriptionId: true
+      - http: 
+          path: notification/{notificationId}
+          method: put
+          authorizer: authDefault
+          cors: true
+          request:
+            parameters:
+              paths:
+                notificationId: true
+      - http: 
+          path: notification/{notificationId}
+          method: delete
+          authorizer: authDefault
+          cors: true
+          request:
+            parameters:
+              paths:
+                notificationId: true
+
+  purchasedDocs:
+    handler: functions/purchased-docs/index.handler
+    memorySize: 128
+    description: Purchased docs service.
+    package:
+      include:
+        - functions/purchased-docs/**
+    events:
+      - http: 
+          path: purchased-docs
+          method: get
+          authorizer: authDefault
+          cors: true
+      - http: 
+          path: purchased-docs/user
+          method: get
+          authorizer: authDefault
+          cors: true
+
+  ranking:
+    handler: functions/ranking/index.handler
+    memorySize: 128
+    description: Ranking service.
+    package:
+      include:
+        - functions/ranking/**
+    events:
+      - http: 
+          path: ranking/file
+          method: get
+          cors: true
+      - http: 
+          path: ranking/user
+          method: get
+          cors: true
+
+  redeem:
+    handler: functions/redeem/index.handler
+    memorySize: 128
+    description: Redeem service.
+    package:
+      include:
+        - functions/redeem/**
+    vpc:
+      securityGroupIds:
+        - sg-0c1d9cbe253973869
+      subnetIds:
+        - subnet-0934a17080a9f5069
+    events:
+      - http: 
+          path: redeem
+          method: get
+          authorizer: authDefault
+          cors: true
+      - http: 
+          path: redeem
+          method: post
+          authorizer: authDefault
+          cors: true
+      - http: 
+          path: redeem/{redeemId}
+          method: get
+          authorizer: authDefault
+          cors: true
+          request:
+            parameters:
+              paths:
+                redeemId: true
+
+  region:
+    handler: functions/region/index.handler
+    memorySize: 128
+    description: Region service.
+    package:
+      include:
+        - functions/region/**
+    events:
+      - http: 
+          path: region
+          method: get
+          cors: true
+
+  report:
+    handler: functions/report/index.handler
+    memorySize: 128
+    description: Report service.
+    package:
+      include:
+        - functions/report/**
+    vpc:
+      securityGroupIds:
+        - sg-0c1d9cbe253973869
+      subnetIds:
+        - subnet-0934a17080a9f5069
+    events:
+      - http: 
+          path: report
+          method: post
+          cors: true
+      - http: 
+          path: report/create
+          method: post
+          authorizer: authDefault
+          cors: true
+      - http: 
+          path: report/uploader
+          method: post
+          cors: true
+  
+  shop:
+    handler: functions/shop/index.handler
+    memorySize: 128
+    description: Shop service.
+    package:
+      include:
+        - functions/shop/**
+    vpc:
+      securityGroupIds:
+        - sg-0c1d9cbe253973869
+      subnetIds:
+        - subnet-0934a17080a9f5069
+    events:
+      - http: 
+          path: shop/catalog
+          method: get
+          cors: true
+      - http: 
+          path: shop/checkout
+          method: post
+          cors: true
+      - http: 
+          path: shop/payment
+          method: post
+          authorizer: authDefault
+          cors: true
+      - http: 
+          path: shop/payment/confirm/{paymentId}
+          method: get
+          authorizer: authDefault
+          cors: true
+          request:
+            parameters:
+              paths:
+                paymentId: true
+  
+  social:
+    handler: functions/social/index.handler
+    memorySize: 128
+    description: Social service.
+    package:
+      include:
+        - functions/social/**
+    vpc:
+      securityGroupIds:
+        - sg-0c1d9cbe253973869
+      subnetIds:
+        - subnet-0934a17080a9f5069
+    environment:
+      S3_WEB_USERS_ACCESS_KEY_ID: ${env:S3_WEB_USERS_ACCESS_KEY_ID}
+      S3_WEB_USERS_ACCESS_KEY_SECRET: ${env:S3_WEB_USERS_ACCESS_KEY_SECRET}
+    events:
+      - http: 
+          path: social
+          method: get
+          authorizer: authIdentifier
+          cors: true
+      - http: 
+          path: social/feed
+          method: get
+          authorizer: authIdentifier
+          cors: true
+      - http: 
+          path: social/user/{userId}
+          method: get
+          authorizer: authIdentifier
+          cors: true
+          request:
+            parameters:
+              paths:
+                userId: true
+      - http: 
+          path: social/{socialId}
+          method: get
+          authorizer: authIdentifier
+          cors: true
+          request:
+            parameters:
+              paths:
+                socialId: true
+      - http: 
+          path: social/{socialId}/like
+          method: get
+          authorizer: authIdentifier
+          cors: true
+          request:
+            parameters:
+              paths:
+                socialId: true
+      - http: 
+          path: social/{socialId}/comment
+          method: get
+          authorizer: authIdentifier
+          cors: true
+          request:
+            parameters:
+              paths:
+                socialId: true
+      - http: 
+          path: social/{socialId}/comment/{commentId}
+          method: get
+          cors: true
+          request:
+            parameters:
+              paths:
+                socialId: true
+                commentId: true
+      - http: 
+          path: social/{socialId}/comment/{commentId}/like
+          method: get
+          cors: true
+          request:
+            parameters:
+              paths:
+                socialId: true
+                commentId: true
+      - http: 
+          path: social
+          method: post
+          authorizer: authDefault
+          cors: true
+      - http: 
+          path: social/{socialId}/like
+          method: post
+          authorizer: authDefault
+          cors: true
+          request:
+            parameters:
+              paths:
+                socialId: true
+      - http: 
+          path: social/{socialId}/comment
+          method: post
+          authorizer: authDefault
+          cors: true
+          request:
+            parameters:
+              paths:
+                socialId: true
+      - http: 
+          path: social/{socialId}/comment/{commentId}/like
+          method: post
+          cors: true
+          request:
+            parameters:
+              paths:
+                socialId: true
+                commentId: true
+      - http: 
+          path: social/{socialId}
+          method: put
+          authorizer: authDefault
+          cors: true
+          request:
+            parameters:
+              paths:
+                socialId: true
+      - http: 
+          path: social/{socialId}
+          method: delete
+          authorizer: authDefault
+          cors: true
+          request:
+            parameters:
+              paths:
+                socialId: true
+      - http: 
+          path: social/{socialId}/comment/{commentId}
+          method: delete
+          authorizer: authDefault
+          cors: true
+          request:
+            parameters:
+              paths:
+                socialId: true
+                commentId: true
+
+  stats:
+    handler: functions/stats/index.handler
+    memorySize: 128
+    description: Stats service.
+    package:
+      include:
+        - functions/stats/**
+    events:
+      - http: 
+          path: stats
+          method: get
+          cors: true
+      - http: 
+          path: stats/ranking
+          method: get
+          cors: true
+      - http: 
+          path: stats/downloads
+          method: get
+          authorizer: authDefault
+          cors: true
+      - http: 
+          path: stats/balance
+          method: get
+          authorizer: authDefault
+          cors: true
+  
+  study:
+    handler: functions/study/index.handler
+    memorySize: 128
+    description: Study service.
+    package:
+      include:
+        - functions/study/**
+    vpc:
+      securityGroupIds:
+        - sg-0c1d9cbe253973869
+      subnetIds:
+        - subnet-0934a17080a9f5069
+    events:
+      - http: 
+          path: study
+          method: get
+          cors: true
+      - http: 
+          path: study
+          method: post
+          cors: true
+      - http: 
+          path: study/ambassador
+          method: get
+          cors: true
+      - http: 
+          path: study/{studyId}
+          method: get
+          cors: true
+          request:
+            parameters:
+              paths:
+                studyId: true
+  
+  university:
+    handler: functions/university/index.handler
+    memorySize: 128
+    description: University service.
+    package:
+      include:
+        - functions/university/**
+    events:
+      - http: 
+          path: university
+          method: get
+          cors: true
+      - http: 
+          path: university/{universityId}
+          method: get
+          cors: true
+    
+  upload:
+    handler: functions/upload/index.handler
+    memorySize: 128
+    description: Upload service.
+    package:
+      include:
+        - functions/upload/**
+    vpc:
+      securityGroupIds:
+        - sg-0c1d9cbe253973869
+      subnetIds:
+        - subnet-0934a17080a9f5069
+    environment:
+      S3_WEB_USERS_ACCESS_KEY_ID: ${env:S3_WEB_USERS_ACCESS_KEY_ID}
+      S3_WEB_USERS_ACCESS_KEY_SECRET: ${env:S3_WEB_USERS_ACCESS_KEY_SECRET}
+    events:
+      - http: 
+          path: upload
+          method: get
+          authorizer: authIdentifier
+          cors: true
+      - http: 
+          path: upload
+          method: post
+          authorizer: authDefault
+          cors: true
+      - http: 
+          path: upload/category
+          method: get
+          cors: true
+      - http: 
+          path: upload/{uploadId}
+          method: get
+          cors: true
+          request:
+            parameters:
+              paths:
+                uploadId: true
+      - http: 
+          path: upload/{uploadId}
+          method: put
+          authorizer: authDefault
+          cors: true
+          request:
+            parameters:
+              paths:
+                uploadId: true
+      - http: 
+          path: upload/{uploadId}
+          method: delete
+          authorizer: authDefault
+          cors: true
+          request:
+            parameters:
+              paths:
+                uploadId: true
+
+  user:
+    handler: functions/user/index.handler
+    memorySize: 128
+    description: User service.
+    package:
+      include:
+        - functions/user/**
+    vpc:
+      securityGroupIds:
+        - sg-0c1d9cbe253973869
+      subnetIds:
+        - subnet-0934a17080a9f5069
+    environment:
+      S3_WEB_USERS_ACCESS_KEY_ID: ${env:S3_WEB_USERS_ACCESS_KEY_ID}
+      S3_WEB_USERS_ACCESS_KEY_SECRET: ${env:S3_WEB_USERS_ACCESS_KEY_SECRET}
+    events:
+      - http: 
+          path: user
+          method: get
+          authorizer: authIdentifier
+          cors: true
+      - http: 
+          path: user
+          method: put
+          authorizer: authDefault
+          cors: true
+      - http: 
+          path: user
+          method: delete
+          authorizer: authDefault
+          cors: true
+      - http: 
+          path: user/block
+          method: post
+          authorizer: authDefault
+          cors: true
+      - http: 
+          path: user/campaign
+          method: post
+          authorizer: authDefault
+          cors: true
+      - http: 
+          path: user/code
+          method: put
+          authorizer: authDefault
+          cors: true
+      - http: 
+          path: user/confirm-account
+          method: get
+          cors: true
+      - http: 
+          path: user/confirm-account
+          method: post
+          cors: true
+      - http: 
+          path: user/invitation
+          method: get
+          cors: true
+      - http: 
+          path: user/invitation_reward
+          method: get
+          authorizer: authIdentifier
+          cors: true
+      - http: 
+          path: user/invitation_reward/invitations
+          method: get
+          authorizer: authIdentifier
+          cors: true
+      - http: 
+          path: user/me
+          method: get
+          authorizer: authDefault
+          cors: true
+      - http: 
+          path: user/reset-password
+          method: get
+          cors: true
+      - http: 
+          path: user/reset-password
+          method: post
+          cors: true
+      - http: 
+          path: user/stats
+          method: get
+          authorizer: authIdentifier
+          cors: true
+      - http: 
+          path: user/student
+          method: post
+          authorizer: authDefault
+          cors: true
+      - http: 
+          path: user/student
+          method: put
+          authorizer: authDefault
+          cors: true
+      - http: 
+          path: user/student/study
+          method: post
+          authorizer: authDefault
+          cors: true
+      - http: 
+          path: user/student/study/{studyId}
+          method: put
+          authorizer: authDefault
+          cors: true
+          request:
+            parameters:
+              paths:
+                studyId: true
+      - http: 
+          path: user/student/study/{studyId}
+          method: delete
+          authorizer: authDefault
+          cors: true
+          request:
+            parameters:
+              paths:
+                studyId: true
+      - http: 
+          path: user/tutorial
+          method: get
+          authorizer: authDefault
+          cors: true
+      - http: 
+          path: user/tutorial
+          method: post
+          authorizer: authDefault
+          cors: true
+      - http: 
+          path: user/{userId}
+          method: get
+          cors: true
+          request:
+            parameters:
+              paths:
+                userId: true
+      - http: 
+          path: user/{userId}/docs
+          method: get
+          authorizer: authIdentifier
+          cors: true
+          request:
+            parameters:
+              paths:
+                userId: true
